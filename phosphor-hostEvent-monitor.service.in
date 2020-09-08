@@ -1,0 +1,11 @@
+[Unit]
+Description=BMC hostEvent Monitor
+
+[Service]
+ExecStart=@bindir@/hostEvent-monitor
+Type=dbus
+BusName=xyz.openbmc_project.HostEventMon
+SyslogIdentifier=phosphor-hostEvent-monitor
+
+[Install]
+WantedBy=multi-user.target
