@@ -315,8 +315,7 @@ void HostEventMon::createHostEventSensors()
         iface->initialize();
     }
 
-    monitorCurrentHostStateService();
-    monitorRequestHostTransitionService();
+    monitorHostStateService();
     monitorRestartCauseService();
 
     io.run();
