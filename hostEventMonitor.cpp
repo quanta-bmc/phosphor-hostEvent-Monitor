@@ -1,10 +1,6 @@
 #include "config.h"
-
 #include "hostEventMonitor.hpp"
-
-
 #include <phosphor-logging/log.hpp>
-#include <sdeventplus/event.hpp>
 
 #include <fstream>
 #include <iostream>
@@ -15,11 +11,6 @@
 #include <boost/asio/spawn.hpp>
 #include <sdbusplus/asio/connection.hpp>
 #include <sdbusplus/asio/object_server.hpp>
-
-extern "C"
-{
-#include <sys/sysinfo.h>
-}
 
 static constexpr bool DEBUG = true;
 
@@ -77,11 +68,14 @@ void HostEventMon::getConfigData(Json& data, HostEventConfig& cfg)
     cfg.windowSize = data.value("Window_size", 1);
 
     auto threshold = data.value("Threshold", empty);
+    cfg.criticalAlarm = false;
+    cfg.warningAlarm = false;
     if (!threshold.empty())
     {
         auto criticalData = threshold.value("Critical", empty);
         if (!criticalData.empty())
         {
+            cfg.criticalAlarm = true;
             cfg.criticalHigh = criticalData.value("Value", 0);
             cfg.criticalLog = criticalData.value("Log", true);
             cfg.criticalTgt = criticalData.value("Target", "");
@@ -89,6 +83,7 @@ void HostEventMon::getConfigData(Json& data, HostEventConfig& cfg)
         auto warningData = threshold.value("Warning", empty);
         if (!warningData.empty())
         {
+            cfg.warningAlarm = true;
             cfg.warningHigh = warningData.value("Value", 0);
             cfg.warningLog = warningData.value("Log", true);
             cfg.warningTgt = warningData.value("Target", "");
@@ -123,6 +118,140 @@ std::vector<HostEventConfig> HostEventMon::getEventConfig()
     return cfgs;
 }
 
+void monitorHostStateService(){
+
+    std::cout << "#### monitorHostStateService started\n";
+    boost::asio::io_context io;
+    auto conn= std::make_shared<sdbusplus::asio::connection>(io);
+    static auto match = sdbusplus::bus::match::match(
+    *conn,
+    "type='signal',member='PropertiesChanged', "
+    "path='/xyz/openbmc_project/state/host0', "
+    "arg0='xyz.openbmc_project.State.Host'",
+    [](sdbusplus::message::message& message) {
+        std::string intfName;
+        std::map<std::string, std::variant<std::string>> properties;
+        std::string value;
+        try
+        {
+            message.read(intfName, properties);
+            if (properties.empty())
+            {
+                std::cerr << "ERROR: Empty PropertiesChanged signal received\n";
+                return;
+            }
+            else
+            {
+                if (properties.begin()->first == "CurrentHostState")
+                {
+                    value = std::get<std::string>(properties.begin()->second);
+                    std::cout << "CurrentHostState value:" << value <<  "\n";
+
+                    boost::asio::io_context io;
+                    auto conn= std::make_shared<sdbusplus::asio::connection>(io);
+                    conn->async_method_call(
+                    [](boost::system::error_code ec) {
+                        if (ec)
+                        {
+                            std::cerr << "failed to set Value action\n";
+                        }else 
+                            std::cout << "async call to Properties. Set serialized via yield OK!\n";
+                     },
+                    "xyz.openbmc_project.HealthStatistics",
+                    "/xyz/openbmc_project/sensors/oem/current_host_state",
+                    "org.freedesktop.DBus.Properties", "Set",
+                    "xyz.openbmc_project.Sensor.Value", "Value", std::variant<std::string>{value});
+                }
+                else if (properties.begin()->first == "RequestedHostTransition")
+                {
+                    value = std::get<std::string>(properties.begin()->second);
+                    std::cout << "RequestedHostTransition value:" << value <<  "\n";
+
+                    boost::asio::io_context io;
+                    auto conn = std::make_shared<sdbusplus::asio::connection>(io);
+                    conn->async_method_call(
+                    [](boost::system::error_code ec) {
+                        if (ec)
+                        {
+                            std::cerr << "failed to set Value action\n";
+                        }else 
+                            std::cout << "async call to Properties. Set serialized via yield OK!\n";
+                     },
+                    "xyz.openbmc_project.HealthStatistics",
+                    "/xyz/openbmc_project/sensors/oem/requested_host_transition",
+                    "org.freedesktop.DBus.Properties", "Set",
+                    "xyz.openbmc_project.Sensor.Value", "Value", std::variant<std::string>{value});
+                }
+            }     
+
+        }
+        catch (std::exception& e)
+        {
+            std::cerr << "Unable to read host state\n";
+            return;
+        }
+        std::cout << "#### monitorHostStateService property change end\n";       
+    });
+
+}
+
+void monitorRestartCauseService(){
+
+    std::cout << "#### monitorRestartCauseService started\n";
+    boost::asio::io_context io;
+    auto conn= std::make_shared<sdbusplus::asio::connection>(io);
+    static auto match = sdbusplus::bus::match::match(
+    *conn,
+    "type='signal',member='PropertiesChanged', "
+    "path='/xyz/openbmc_project/control/host0/restart_cause', "
+    "arg0='xyz.openbmc_project.Control.Host.RestartCause'",
+    [](sdbusplus::message::message& message) {
+        std::string intfName;
+        std::map<std::string, std::variant<std::string>> properties;
+        std::string value;
+        try
+        {
+            message.read(intfName, properties);
+            if (properties.empty())
+            {
+                std::cerr << "ERROR: Empty PropertiesChanged signal received\n";
+                return;
+            }
+            else
+            {
+                if (properties.begin()->first == "RestartCause")
+                {
+                    value = std::get<std::string>(properties.begin()->second);
+                    std::cout << "RestartCause value:" << value <<  "\n";
+
+                    boost::asio::io_context io;
+                    auto conn = std::make_shared<sdbusplus::asio::connection>(io);
+                    conn->async_method_call(
+                    [](boost::system::error_code ec) {
+                        if (ec)
+                        {
+                            std::cerr << "failed to set Value action\n";
+                        }else 
+                            std::cout << "async call to Properties. Set serialized via yield OK!\n";
+                     },
+                    "xyz.openbmc_project.HealthStatistics",
+                    "/xyz/openbmc_project/sensors/oem/restart_cause",
+                    "org.freedesktop.DBus.Properties", "Set",
+                    "xyz.openbmc_project.Sensor.Value", "Value", std::variant<std::string>{value});
+                }
+            }     
+
+        }
+        catch (std::exception& e)
+        {
+            std::cerr << "Unable to read host state\n";
+            return;
+        }
+        std::cout << "#### monitorRestartCauseService property change end\n";       
+    });
+
+}
+
 /* Create dbus utilization sensor object for each configured sensors */
 void HostEventMon::createHostEventSensors()
 {
@@ -153,20 +282,43 @@ void HostEventMon::createHostEventSensors()
         
         if (cfg.type == "utilization")
         {
-            // test generic properties
             iface->register_property("Value", static_cast<double>(0),
                              sdbusplus::asio::PropertyPermission::readWrite);
+            iface->register_property("Unit", std::string("xyz.openbmc_project.Sensor.Value.Unit.Percent"),
+                             sdbusplus::asio::PropertyPermission::readWrite);
+
+            std::shared_ptr<sdbusplus::asio::dbus_interface> ifaceCritical = server.add_interface(ifaceobjpath, "xyz.openbmc_project.Sensor.Threshold.Critical");
+            ifaceCritical->register_property("CriticalAlarmHigh", cfg.criticalAlarm, sdbusplus::asio::PropertyPermission::readWrite);
+            ifaceCritical->register_property("CriticalHigh", cfg.criticalAlarm ? cfg.criticalHigh : static_cast<double>(0), sdbusplus::asio::PropertyPermission::readWrite);
+            //no need CriticalAlarmLow
+            ifaceCritical->register_property("CriticalAlarmLow", false, sdbusplus::asio::PropertyPermission::readWrite);
+            ifaceCritical->register_property("CriticalLow", static_cast<double>(0), sdbusplus::asio::PropertyPermission::readWrite);
+            ifaceCritical->initialize();
+
+            std::shared_ptr<sdbusplus::asio::dbus_interface> ifaceWarning =  server.add_interface(ifaceobjpath, "xyz.openbmc_project.Sensor.Threshold.Warning");
+            ifaceWarning->register_property("WarningAlarmHigh", cfg.warningAlarm, sdbusplus::asio::PropertyPermission::readWrite);
+            ifaceWarning->register_property("WarningHigh", cfg.warningAlarm ? cfg.warningHigh : static_cast<double>(0), sdbusplus::asio::PropertyPermission::readWrite);
+            //no need WarningAlarmLow
+            ifaceWarning->register_property("WarningAlarmLow", false, sdbusplus::asio::PropertyPermission::readWrite);
+            ifaceWarning->register_property("WarningLow", static_cast<double>(0), sdbusplus::asio::PropertyPermission::readWrite);
+            ifaceWarning->initialize();
         }
         else 
         {
             iface->register_property("Value", std::string("n/a"),
                              sdbusplus::asio::PropertyPermission::readWrite);
+            iface->register_property("Unit", std::string("xyz.openbmc_project.Sensor.Value.Unit.Percent"), //no Unit for OEM
+                             sdbusplus::asio::PropertyPermission::readWrite);
         }
 
-        iface->register_property("Unit", std::string("xyz.openbmc_project.Sensor.Value.Unit.DegreesC"),
-                             sdbusplus::asio::PropertyPermission::readWrite);
+        
         iface->initialize();
     }
+
+    monitorCurrentHostStateService();
+    monitorRequestHostTransitionService();
+    monitorRestartCauseService();
+
     io.run();
 }
 
