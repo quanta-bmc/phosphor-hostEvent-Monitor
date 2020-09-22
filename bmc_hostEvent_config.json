@@ -1,20 +1,4 @@
 {
-  "Storage" : {
-    "SensorType": "utilization",
-    "Frequency" : 1,
-    "Window_size": 120,
-    "Threshold":
-    {
-        "Critical":
-        {
-
-        },
-        "Warning":
-        {
-
-        }
-    }
-  },
   "current_host_state" : {
     "SensorType": "oem",
     "Frequency" : 1,
